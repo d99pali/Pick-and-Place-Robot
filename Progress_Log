@@ -1,0 +1,93 @@
+from controller import Robot
+import numpy as np
+import cv2
+
+robot = Robot()
+timestep = int(robot.getBasicTimeStep())
+
+# --- Motors ---
+base_motor = robot.getDevice("base_motor")
+shoulder_motor = robot.getDevice("shoulder_motor")
+elbow_motor = robot.getDevice("elbow_motor")
+gripper_motor = robot.getDevice("gripper_motor")
+
+# --- Position sensors ---
+base_sensor = robot.getDevice("base_motor_sensor")
+shoulder_sensor = robot.getDevice("shoulder_motor_sensor")
+elbow_sensor = robot.getDevice("elbow_motor_sensor")
+gripper_sensor = robot.getDevice("gripper_motor_sensor")
+base_sensor.enable(timestep)
+shoulder_sensor.enable(timestep)
+elbow_sensor.enable(timestep)
+gripper_sensor.enable(timestep)
+
+# --- Camera ---
+camera = robot.getDevice("workspace_cam")
+camera.enable(timestep)
+
+# --- Move arm to a neutral "looking at workspace" pose ---
+base_motor.setPosition(0.0)
+shoulder_motor.setPosition(0.3)
+elbow_motor.setPosition(0.2)
+gripper_motor.setPosition(0.0)
+
+print("Camera + motors initialized. Starting capture loop...")
+
+step_count = 0
+
+while robot.step(timestep) != -1:
+    step_count += 1
+
+    if step_count % 10 == 0:
+        # --- Pull raw image data from Webots camera ---
+        image = camera.getImage()
+        width = camera.getWidth()
+        height = camera.getHeight()
+
+        img_array = np.frombuffer(image, np.uint8).reshape((height, width, 4))
+        img_bgr = img_array[:, :, :3]
+
+        # --- Saturation-based detection (more robust than edges under dim/uneven lighting) ---
+        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        saturation = hsv[:, :, 1]
+        _, sat_mask = cv2.threshold(saturation, 40, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(sat_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        detected_count = 0
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < 20:
+                continue
+            detected_count += 1
+
+            x, y, w, h = cv2.boundingRect(contour)
+            cx, cy = x + w // 2, y + h // 2
+
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
+            vertices = len(approx)
+            circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
+            
+            if vertices == 3:
+                shape = "triangle"
+            elif vertices == 4:
+                shape = "square/rectangle"
+            elif circularity > 0.75:  # raised threshold, only used for non-3/4-vertex shapes
+                shape = "circle"
+            else:
+                shape = f"polygon({vertices})"
+                
+                
+
+            # Sample average color at centroid - useful groundwork for color-based sorting later
+            avg_color = img_bgr[cy, cx]
+            print(f"Step {step_count} | Detected {shape} at pixel ({cx},{cy}), "
+                  f"size {w}x{h}, area {area:.0f}, BGR color {avg_color}")
+
+        if detected_count == 0:
+            print(f"Step {step_count} | No objects detected in frame")
+
+    if step_count > 300:
+        break
+
+print("Vision test loop complete.")
