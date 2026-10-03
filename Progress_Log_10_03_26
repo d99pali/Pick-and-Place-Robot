@@ -1,3 +1,10 @@
+Built a 4-DOF robotic sorting arm in Webots (simulated due to limited 3D printer access). Joint chain (base, shoulder, elbow, gripper) verified via position sensors — commanded angles match actual motion. Added a top-down camera; diagnosed a camera orientation bug using Webots' Supervisor API to query real-world position/orientation directly, since the dev machine's GPU doesn't support standard rendering. 
+Added two test objects (square + circle) and built an OpenCV detection pipeline: HSV saturation thresholding to separate objects from background under dim lighting, contour-based shape classification (vertex count + circularity fallback, tuned to 0.75), and color sampling at each object's centroid. Both objects now detect reliably and classify correctly across every frame.
+
+Next: pixel-to-arm coordinate calibration, then full pick-and-place sequencing.
+
+10/03/2026
+
 from controller import Robot
 import numpy as np
 import cv2
